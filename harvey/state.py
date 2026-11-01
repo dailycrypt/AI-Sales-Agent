@@ -2391,6 +2391,15 @@ class StateManager:
             )
             await db.commit()
 
+    async def last_action_at(self) -> datetime | None:
+        """When the heartbeat last logged a finished cycle (naive UTC)."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT MAX(created_at) FROM actions WHERE agent = 'main'"
+            ) as cursor:
+                row = await cursor.fetchone()
+        return datetime.fromisoformat(row[0]) if row and row[0] else None
+
     # ── Analytics ──
 
     async def get_campaign_stats(self) -> list[dict]:

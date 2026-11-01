@@ -769,6 +769,109 @@ def cmd_changes(args):
     asyncio.run(_changes())
 
 
+def cmd_today(args):
+    """Where deals need a person right now."""
+    from harvey.closer import active_conversations, deal_values, forecast, is_hot, is_stalled
+    from harvey.state import StateManager
+
+    async def _today():
+        state = StateManager()
+        await state.init_db()
+        conversations = await active_conversations(state)
+        pending = await state.get_outbox(status="pending_review")
+        report = forecast(conversations, await deal_values(state, conversations))
+        print(f"\n  Waiting for your approval: {len(pending)} email(s)")
+        for title, check in (("Hot replies", is_hot), ("Stalled deals", is_stalled)):
+            matches = [c for c in conversations if check(c)]
+            print(f"\n  {title}: {len(matches)}")
+            for convo in matches:
+                prospect = await state.get_prospect(convo.prospect_id)
+                who = f"{prospect.full_name()}, {prospect.company}" if prospect else convo.prospect_id
+                print(f"    {convo.id}  {who}  [{convo.stage}]")
+        print(f"\n  Open pipeline: {report['open']:,.2f}  (weighted {report['weighted']:,.2f})\n")
+
+    asyncio.run(_today())
+
+
+def cmd_deal(args):
+    """Record a deal's value, or close it as won or lost."""
+    from harvey.closer import close_deal
+    from harvey.state import StateManager
+
+    async def _deal():
+        state = StateManager()
+        await state.init_db()
+        convo = await state.get_conversation(args.conversation)
+        if convo is None:
+            print(f"\n  No conversation {args.conversation}.\n")
+            sys.exit(1)
+        if args.value is not None and args.value < 0:
+            print("\n  Deal value can't be negative.\n")
+            sys.exit(1)
+        if args.outcome:
+            await close_deal(state, convo, args.outcome == "won", args.value)
+            print(f"\n  Closed as {args.outcome}.\n")
+        elif args.value is not None:
+            await state.set_setting(f"deal_value:{convo.id}", str(args.value))
+            print(f"\n  Deal value set to {args.value:,.2f}.\n")
+        else:
+            print(f"\n  Stage: {convo.stage}. Value: "
+                  f"{await state.get_setting(f'deal_value:{convo.id}', 'not set')}\n")
+
+    asyncio.run(_deal())
+
+
+def cmd_health(args):
+    """Exit 0 if the loop runs and finished a cycle recently, else 1. For monitors."""
+    from harvey.closer import loop_health
+    from harvey.state import StateManager
+
+    async def _health():
+        state = StateManager()
+        await state.init_db()
+        return await loop_health(state)
+
+    health = asyncio.run(_health())
+    print(f"\n  Loop running: {health.running}")
+    print(f"  Last cycle:   {health.last_cycle or 'never'} UTC")
+    print(f"  Healthy:      {health.healthy}\n")
+    if not health.healthy:
+        sys.exit(1)
+
+
+def cmd_chatbot(args):
+    """Serve the Harvey AI website chatbot, or print its embed code."""
+    from harvey.chatbot import embed_snippet
+
+    if args.embed:
+        print(embed_snippet(args.embed, args.name))
+        return
+    if not args.origin or not all(o.startswith("https://") or "localhost" in o for o in args.origin):
+        print("\n  Give each site with --origin https://your-site.example\n")
+        sys.exit(2)
+
+    import uvicorn
+
+    from harvey.brain import Brain
+    from harvey.chatbot import build_knowledge, create_app
+    from harvey.config import load_config
+    from harvey.state import StateManager
+
+    config = load_config()
+    state = StateManager()
+    asyncio.run(state.init_db())
+    brain = Brain(state, config.brain)
+
+    async def reply(prompt):
+        return await brain.think(prompt, agent="chatbot", task="website_reply")
+
+    app = create_app(reply, state, build_knowledge(config, brain), args.origin,
+                     name=args.name, daily_limit=args.daily_limit)
+    print(f"\n  {args.name} is serving on http://{args.host}:{args.port}")
+    print("  Put it behind HTTPS, then add the code from `harvey chatbot --embed URL`.\n")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+
+
 def cmd_calendar(args):
     """List Cal.com slots, or book one for a prospect you name."""
     import os
@@ -1181,6 +1284,29 @@ def main():
     sub.add_argument("--positive", action="store_true", help="Only signals that newly appeared")
     sub.add_argument("--limit", type=int, default=50)
     sub.set_defaults(func=cmd_changes)
+
+    sub = subparsers.add_parser("today", help="Hot replies, stalled deals, approvals, pipeline")
+    sub.set_defaults(func=cmd_today)
+
+    sub = subparsers.add_parser("deal", help="Set a deal's value or close it")
+    sub.add_argument("conversation", help="Conversation id, from `harvey today`")
+    sub.add_argument("--value", type=float, default=None)
+    sub.add_argument("--outcome", choices=["won", "lost"], default="")
+    sub.set_defaults(func=cmd_deal)
+
+    sub = subparsers.add_parser("health", help="Is the loop alive? Exits 1 if not")
+    sub.set_defaults(func=cmd_health)
+
+    sub = subparsers.add_parser("chatbot", help="Serve the Harvey AI website chatbot")
+    sub.add_argument("--origin", action="append", default=[],
+                     help="Site allowed to use it; repeat for several")
+    sub.add_argument("--name", default="Harvey AI", help="Name shown to visitors")
+    sub.add_argument("--host", default="127.0.0.1")
+    sub.add_argument("--port", type=int, default=5556)
+    sub.add_argument("--daily-limit", type=int, default=200, help="Max model replies a day")
+    sub.add_argument("--embed", metavar="URL", default="",
+                     help="Print the script tag for this public server URL, then exit")
+    sub.set_defaults(func=cmd_chatbot)
 
     sub = subparsers.add_parser("calendar", help="Cal.com slots and booking")
     calendar_actions = sub.add_subparsers(dest="action", required=True)

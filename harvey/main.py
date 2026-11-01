@@ -10,6 +10,7 @@ import pytz
 
 from harvey.brain import Brain
 from harvey.sending_mode import sync_sending_mode
+from harvey.closer import send_hot_alerts
 from harvey.config import (
     ConfigError, load_config, load_env, HarveyConfig, legacy_sending_held, sending_notice,
     compliance_notice, send_window_of,
@@ -453,6 +454,12 @@ async def heartbeat(stop_event: asyncio.Event | None = None):
                 await state.log_action(action_type=action, agent="main")
             except Exception as e:
                 logger.warning(f"Failed to log action '{action}': {e}")
+
+            # Reach a person fast when a reply turns hot (best-effort).
+            try:
+                await send_hot_alerts(state)
+            except Exception as e:
+                logger.warning(f"Hot-lead alerts skipped: {type(e).__name__}")
 
             consecutive_errors = 0
 

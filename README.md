@@ -813,6 +813,13 @@ AI Sales Agent is a fork of [Harvey](https://github.com/ethanplusai/harvey) (MIT
 | `harvey leads` | Ranks open prospects from 0 to 100, with the reason for each point. |
 | `harvey insights` | Reply rate, positive rate, reply intents, pipeline stages and meetings. |
 | `harvey changes [--positive]` | Signals that changed between a company's two newest readings. It reports only; it doesn't trigger outreach. |
+| `harvey today` | Emails awaiting approval, hot replies, stalled deals and pipeline value. |
+| `harvey deal ID [--value N] [--outcome won|lost]` | Records a deal's value, or closes it. |
+| `harvey health` | Exits 1 unless the loop is running and finished a cycle in the last 12 hours. For monitors. |
+| `harvey chatbot --origin https://your-site.example` | Serves the Harvey AI website chatbot. Options: `--name`, `--port`, `--host`, `--daily-limit`. |
+| `harvey chatbot --embed https://chat.your-site.example` | Prints the script tag for your site. Tag options: `data-name`, `data-greeting`, `data-color`, `data-position`. |
+
+Set `HARVEY_ALERT_WEBHOOK` in `.env` (https, such as Slack or Discord) to be told about each hot reply. Alerts carry a name, company and intent, never the message text. Running 24/7 needs a machine that stays on: `docker compose up -d` on Linux, or an always-on host.
 
 ---
 
