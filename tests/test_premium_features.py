@@ -108,7 +108,7 @@ async def test_booking_sends_attendee_and_version_header():
 @pytest.mark.asyncio
 async def test_calendar_failures_degrade_instead_of_raising():
     failing = _client(lambda request: httpx.Response(500))
-    assert await failing.get_available_slots("2033-09-05", "2033-09-06") == []
+    assert await failing.get_available_slots("2033-09-05", "2033-09-06") is None
     assert not await failing.book_meeting("sam@example.com", {"start": "x"})
     unconfigured = CalendarClient()
     assert await unconfigured.get_available_slots("a", "b") == []

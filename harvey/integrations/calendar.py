@@ -2,7 +2,8 @@
 
 Set CAL_API_KEY and CAL_EVENT_TYPE_ID in .env. Without them every method
 degrades gracefully (empty results / False) so callers can invoke them
-unconditionally. Booking runs only when something calls book_meeting; the
+unconditionally. A failed slot read returns None, so it can't pass for an
+empty calendar. Booking runs only when something calls book_meeting; the
 agents don't, so a person still decides who gets a meeting.
 """
 
@@ -41,8 +42,8 @@ class CalendarClient:
 
     async def get_available_slots(
         self, start: str, end: str, time_zone: str = "UTC"
-    ) -> list[dict]:
-        """Open slots between two dates (YYYY-MM-DD), flattened and in API order."""
+    ) -> list[dict] | None:
+        """Open slots between two dates (YYYY-MM-DD), in API order; None if the read failed."""
         if not self.configured:
             logger.info("Calendar not configured (CAL_API_KEY, CAL_EVENT_TYPE_ID).")
             return []
@@ -59,7 +60,7 @@ class CalendarClient:
                 days = response.json().get("data") or {}
         except (httpx.HTTPError, ValueError) as e:
             logger.warning(f"Could not read calendar slots: {e}")
-            return []
+            return None
         return [slot for day in days.values() for slot in day]
 
     async def book_meeting(

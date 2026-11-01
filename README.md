@@ -800,6 +800,22 @@ tests/                   # 242 tests
 
 ---
 
+## Added in this fork
+
+AI Sales Agent is a fork of [Harvey](https://github.com/ethanplusai/harvey) (MIT). These commands are new. All are command-line only, and the Outbox approval step is unchanged.
+
+| Command | What it does |
+|---|---|
+| `harvey update` | Compares `origin`'s `vX.Y.Z` tags with the installed version. |
+| `harvey update --apply vX.Y.Z` | Installs a tag only if its signature verifies, the code has no uncommitted changes, and Harvey isn't running. |
+| `harvey calendar slots --start YYYY-MM-DD --end YYYY-MM-DD` | Lists open Cal.com slots. Needs `CAL_API_KEY` and `CAL_EVENT_TYPE_ID` in `.env`. |
+| `harvey calendar book --email ADDRESS --at UTC_START` | Books one slot. A person runs this; the agents never book on their own. |
+| `harvey leads` | Ranks open prospects from 0 to 100, with the reason for each point. |
+| `harvey insights` | Reply rate, positive rate, reply intents, pipeline stages and meetings. |
+| `harvey changes [--positive]` | Signals that changed between a company's two newest readings. It reports only; it doesn't trigger outreach. |
+
+---
+
 ## Roadmap
 
 **Done:** heartbeat loop · observation data model with governed vocabulary · user-confirmed signal catalog · cohort builder · discovery provider menu with cost estimates · free HTTP profiler with agency detection · pattern-first email finding with honest status · native mail providers (Gmail API, Microsoft 365 via Graph, SMTP+IMAP) · outbox approval ladder · deterministic pre-send gate · bounce detection and kill switch · reply handling with intent classification · subscription quota tracking · website trainer · web dashboard · CSV export

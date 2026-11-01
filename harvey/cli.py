@@ -787,6 +787,9 @@ def cmd_calendar(args):
     async def _calendar():
         if args.action == "slots":
             slots = await client.get_available_slots(args.start, args.end, args.timezone)
+            if slots is None:
+                print("\n  Could not read Cal.com slots. Check the API key and event type id.\n")
+                sys.exit(1)
             print()
             for slot in slots:
                 print(f"  {slot['start']}")
