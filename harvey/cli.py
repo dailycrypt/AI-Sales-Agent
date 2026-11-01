@@ -681,6 +681,126 @@ def cmd_discover(args):
     asyncio.run(_discover())
 
 
+def cmd_update(args):
+    """Check origin for a newer release, or install a signed one."""
+    from harvey.updates import UpdateError, apply_update, check_for_update
+
+    try:
+        if args.apply:
+            apply_update(args.apply)
+            print(f"\n  Updated to {args.apply}. Run `pip install -e .`, then restart Harvey.\n")
+            return
+        status = check_for_update()
+    except UpdateError as e:
+        print(f"\n  {e}\n")
+        sys.exit(1)
+    if status.available:
+        print(f"\n  Update available: {status.current} -> {status.latest}")
+        print(f"  Install it with: harvey update --apply {status.latest}\n")
+    else:
+        print(f"\n  Harvey {status.current} is up to date.\n")
+
+
+def cmd_leads(args):
+    """Open prospects by priority, with the reasons for each score."""
+    from harvey.insights import ranked_leads
+    from harvey.state import StateManager
+
+    async def _leads():
+        state = StateManager()
+        await state.init_db()
+        rows = await ranked_leads(state, limit=args.limit)
+        if not rows:
+            print("\n  No open prospects yet.\n")
+            return
+        print()
+        for row in rows:
+            prospect = row["prospect"]
+            print(f"  {row['score']:>3}  {prospect.full_name()}, {prospect.company}  [{prospect.status}]")
+            print(f"       {'; '.join(row['reasons']) or 'no scoring facts yet'}")
+        print()
+
+    asyncio.run(_leads())
+
+
+def cmd_insights(args):
+    """Reply rates, objections and pipeline stages."""
+    from harvey.insights import load_analytics
+    from harvey.state import StateManager
+
+    async def _insights():
+        state = StateManager()
+        await state.init_db()
+        report = await load_analytics(state)
+        print(f"\n  Conversations: {report['conversations']}")
+        print(f"  Replied:       {report['replied']} ({report['reply_rate']:.1%})")
+        print(f"  Positive:      {report['positive_rate']:.1%} of replies")
+        print(f"  Meetings:      {report['meetings']}")
+        for title, counts in (("Reply intents", report["intents"]), ("Stages", report["stages"])):
+            print(f"\n  {title}:")
+            for name, count in counts.items():
+                print(f"    {name:<20} {count}")
+        print()
+
+    asyncio.run(_insights())
+
+
+def cmd_changes(args):
+    """Signals that changed between a company's two newest readings."""
+    from harvey.insights import load_signal_changes
+    from harvey.state import StateManager
+
+    async def _changes():
+        state = StateManager()
+        await state.init_db()
+        changes = await load_signal_changes(state)
+        if args.positive:
+            changes = [c for c in changes if c["became_positive"]]
+        if not changes:
+            print("\n  No signal changes. `harvey profile` re-reads stale companies.\n")
+            return
+        print()
+        for change in changes[:args.limit]:
+            company = await state.get_company(change["company_id"])
+            name = company.name if company else change["company_id"]
+            print(f"  {name}: {change['signal_code']} {change['before']} -> {change['after']}")
+        print()
+
+    asyncio.run(_changes())
+
+
+def cmd_calendar(args):
+    """List Cal.com slots, or book one for a prospect you name."""
+    import os
+
+    from dotenv import load_dotenv
+
+    from harvey.integrations.calendar import CalendarClient
+    from harvey.paths import PROJECT_ROOT
+
+    load_dotenv(PROJECT_ROOT / ".env")
+    client = CalendarClient(os.environ.get("CAL_API_KEY", ""), os.environ.get("CAL_EVENT_TYPE_ID", ""))
+    if not client.configured:
+        print("\n  Set CAL_API_KEY and CAL_EVENT_TYPE_ID in .env first.\n")
+        sys.exit(1)
+
+    async def _calendar():
+        if args.action == "slots":
+            slots = await client.get_available_slots(args.start, args.end, args.timezone)
+            print()
+            for slot in slots:
+                print(f"  {slot['start']}")
+            print(f"\n  {len(slots)} open slot(s).\n")
+            return
+        booked = await client.book_meeting(
+            args.email, {"start": args.at}, name=args.name, time_zone=args.timezone)
+        print(f"\n  {'Booked' if booked else 'Could not book'} {args.at} for {args.email}.\n")
+        if not booked:
+            sys.exit(1)
+
+    asyncio.run(_calendar())
+
+
 def cmd_signals(args):
     """Review the signal vocabulary — Harvey proposes, you confirm.
 
@@ -1042,6 +1162,35 @@ def main():
     sub.add_argument("--approve-all", action="store_true", help="Approve all pending")
     sub.add_argument("--reject", metavar="ID", default="", help="Reject one item")
     sub.set_defaults(func=cmd_outbox)
+
+    sub = subparsers.add_parser("update", help="Check for a new release or install a signed one")
+    sub.add_argument("--apply", metavar="TAG", default="", help="Install this signed tag")
+    sub.set_defaults(func=cmd_update)
+
+    sub = subparsers.add_parser("leads", help="Rank open prospects, with reasons")
+    sub.add_argument("--limit", type=int, default=25)
+    sub.set_defaults(func=cmd_leads)
+
+    sub = subparsers.add_parser("insights", help="Reply rates, intents and pipeline stages")
+    sub.set_defaults(func=cmd_insights)
+
+    sub = subparsers.add_parser("changes", help="Company signals that changed")
+    sub.add_argument("--positive", action="store_true", help="Only signals that newly appeared")
+    sub.add_argument("--limit", type=int, default=50)
+    sub.set_defaults(func=cmd_changes)
+
+    sub = subparsers.add_parser("calendar", help="Cal.com slots and booking")
+    calendar_actions = sub.add_subparsers(dest="action", required=True)
+    slots = calendar_actions.add_parser("slots", help="List open slots")
+    slots.add_argument("--start", required=True, help="YYYY-MM-DD")
+    slots.add_argument("--end", required=True, help="YYYY-MM-DD")
+    slots.add_argument("--timezone", default="UTC")
+    book = calendar_actions.add_parser("book", help="Book a slot for one person")
+    book.add_argument("--email", required=True)
+    book.add_argument("--at", required=True, help="UTC start, from `calendar slots`")
+    book.add_argument("--name", default="")
+    book.add_argument("--timezone", default="UTC")
+    sub.set_defaults(func=cmd_calendar)
 
     # harvey sending pause|resume|status
     sub = subparsers.add_parser("discover", help="Find businesses matching your ICP")
