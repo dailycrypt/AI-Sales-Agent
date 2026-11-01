@@ -850,20 +850,37 @@ def cmd_chatbot(args):
         print("\n  Give each site with --origin https://your-site.example\n")
         sys.exit(2)
 
+    import os
+
     import uvicorn
+    from dotenv import load_dotenv
 
     from harvey.brain import Brain
-    from harvey.chatbot import build_knowledge, create_app
+    from harvey.chatbot import API_KEY_ENV, api_reply, build_knowledge, create_app
     from harvey.config import load_config
+    from harvey.paths import PROJECT_ROOT
     from harvey.state import StateManager
 
+    load_dotenv(PROJECT_ROOT / ".env")
     config = load_config()
     state = StateManager()
     asyncio.run(state.init_db())
     brain = Brain(state, config.brain)
+    api_key = os.environ.get(API_KEY_ENV, "")
 
-    async def reply(prompt):
-        return await brain.think(prompt, agent="chatbot", task="website_reply")
+    if api_key:
+        try:
+            reply = api_reply(api_key, args.model)
+        except ImportError:
+            print('\n  Install the API extra first: pip install -e ".[api]"\n')
+            sys.exit(2)
+        print(f"\n  Replies use the Anthropic API ({args.model}), billed per token.")
+    else:
+        print(f"\n  Replies use your Claude subscription. Set {API_KEY_ENV} before")
+        print("  public traffic: check your plan's terms and limits first.")
+
+        async def reply(prompt):
+            return await brain.think(prompt, agent="chatbot", task="website_reply")
 
     app = create_app(reply, state, build_knowledge(config, brain), args.origin,
                      name=args.name, daily_limit=args.daily_limit)
@@ -1304,6 +1321,8 @@ def main():
     sub.add_argument("--host", default="127.0.0.1")
     sub.add_argument("--port", type=int, default=5556)
     sub.add_argument("--daily-limit", type=int, default=200, help="Max model replies a day")
+    sub.add_argument("--model", default="claude-opus-5-5",
+                     help="Model when CHATBOT_ANTHROPIC_API_KEY is set")
     sub.add_argument("--embed", metavar="URL", default="",
                      help="Print the script tag for this public server URL, then exit")
     sub.set_defaults(func=cmd_chatbot)

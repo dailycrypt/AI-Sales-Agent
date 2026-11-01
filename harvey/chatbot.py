@@ -39,6 +39,12 @@ RATE_WINDOW_SECONDS = 60
 RATE_LIMIT_PER_WINDOW = 10
 DEFAULT_DAILY_LIMIT = 200
 SKILLS = ("product_knowledge", "objection_handling", "lead_qualification")
+HISTORY_MARKER = "Conversation so far:"
+DEFAULT_API_MODEL = "claude-opus-5-5"
+API_KEY_ENV = "CHATBOT_ANTHROPIC_API_KEY"
+API_MAX_TOKENS = 2000  # replies are under 80 words; this also caps each call's cost
+API_TIMEOUT_SECONDS = 30
+API_MAX_RETRIES = 1
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-zA-Z]{2,}")
 FALLBACK_REPLY = (
     "Sorry, I can't answer right now. Leave your email and someone will get back to you."
@@ -67,7 +73,7 @@ def build_prompt(name: str, knowledge: str, history: list[tuple[str, str]]) -> s
         "Company facts:",
         knowledge,
         "",
-        "Conversation so far:",
+        HISTORY_MARKER,
     ]
     for speaker, text in history:
         lines.append(f"Visitor: {fence(text, 'website chat')}" if speaker == "visitor"
@@ -177,6 +183,39 @@ def create_app(
         return {"reply": answer, "session": session, "name": name}
 
     return app
+
+
+def api_reply(api_key: str, model: str = DEFAULT_API_MODEL, client=None) -> Reply:
+    """Replies billed to an Anthropic API key, for public traffic.
+
+    Needs the `api` extra. The key has its own name so Harvey's Claude CLI, which
+    runs on a subscription, never picks it up and starts billing per token.
+    """
+    if client is None:
+        import anthropic
+
+        client = anthropic.AsyncAnthropic(
+            api_key=api_key, timeout=API_TIMEOUT_SECONDS, max_retries=API_MAX_RETRIES)
+
+    async def reply(prompt: str) -> str:
+        # The facts rarely change and the history always does, so cache up to the marker.
+        stable, marker, history = prompt.partition(HISTORY_MARKER)
+        response = await client.beta.messages.create(
+            model=model,
+            max_tokens=API_MAX_TOKENS,
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+            output_config={"effort": "low"},
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": marker + history},
+            ]}],
+        )
+        if response.stop_reason == "refusal":
+            return ""
+        return "".join(block.text for block in response.content if block.type == "text")
+
+    return reply
 
 
 def build_knowledge(config, brain) -> str:

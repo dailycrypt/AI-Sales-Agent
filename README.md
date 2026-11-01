@@ -818,6 +818,7 @@ AI Sales Agent is a fork of [Harvey](https://github.com/ethanplusai/harvey) (MIT
 | `harvey health` | Exits 1 unless the loop is running and finished a cycle in the last 12 hours. For monitors. |
 | `harvey chatbot --origin https://your-site.example` | Serves the Harvey AI website chatbot. Options: `--name`, `--port`, `--host`, `--daily-limit`. |
 | `harvey chatbot --embed https://chat.your-site.example` | Prints the script tag for your site. Tag options: `data-name`, `data-greeting`, `data-color`, `data-position`. |
+n`CHATBOT_ANTHROPIC_API_KEY` bills chatbot replies to an Anthropic API key (`pip install -e ".[api]"`, choose a model with `--model`). Without it, replies use your Claude subscription, so check your plan's terms and limits before taking public traffic. Refused requests fall back to another model on the server.
 
 Set `HARVEY_ALERT_WEBHOOK` in `.env` (https, such as Slack or Discord) to be told about each hot reply. Alerts carry a name, company and intent, never the message text. Running 24/7 needs a machine that stays on: `docker compose up -d` on Linux, or an always-on host.
 
